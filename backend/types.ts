@@ -18,12 +18,44 @@ const OrderSchema = z.object({
     type: z.enum(OrderType),
     price: z.number("price should be a number").optional(),
     qty: z.number("quantity should be a number"),
-    marketId: z.string("marketId should be a string"),
+    marketId: z.enum(["SOL", "BTC"]),
     side: z.enum(OrderSide)
 })
 
+interface UserBalance {
+  userId: string;
+  usdBalance: number ;
+  lockedBalance: number;
+  BTC: number;
+  SOL: number;
+}
 
+interface OrderbookOrders {
+  userId: string;
+  qty: number;
+  filledQTy: number;
+  orderId: number;
+  createdAt: Date;
+}
+interface OrderBookOrdersSchema {
+  price: number;
+  totalQty: number;
+  orders: OrderbookOrders[];
+}
+
+interface AssetOrderBook {
+  lastTradedPrice?: number | 0;
+  asks: OrderBookOrdersSchema[];
+  bids: OrderBookOrdersSchema[];
+}
 export {
     SignupSigninSchema,
-    OrderSchema
+    OrderSchema,
+    
+}
+export type {
+    OrderBookOrdersSchema,
+    OrderbookOrders,
+    UserBalance,
+    AssetOrderBook
 }

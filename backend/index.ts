@@ -1,15 +1,14 @@
 import express from "express";
 import {prisma} from "./db"
-import { OrderSchema, SignupSigninSchema } from "./types";
+import { OrderSchema, SignupSigninSchema} from "./types";
 import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
+import { AuthMiddleware } from "./auth.middleware";
 
-const BALANCES = {};
 
-const ORDERBOOKS = {
-  SOL: {},
-  BTC: {},
-};
+
+
+
 
 const app = express()
 
@@ -138,7 +137,25 @@ app.post("/signin", async(req, res) => {
 // 50.01
 
 // 500001
-app.post("/order", (req, res) => { });
+app.post("/order",AuthMiddleware, async(req, res) => {
+  const userid = req.userId;
+  const { data, success, error } = OrderSchema.safeParse(req.body);
+
+  if (!success) {
+    console.log(error);
+    res.json({
+      message: "Invalid Inputs",
+      error,
+    });
+    return;
+  }
+
+  const { marketId, qty, side, type, price } = data;
+
+  
+ 
+
+});
 /*
     returns the status of an order (partially filled, success, cancellled)
     ALSO RETURNS THE INDIVIDUAL FILLS OF THIS ORDER 

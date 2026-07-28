@@ -52,10 +52,10 @@ model Stock {
 }
 
 model Order {
-  id    String    @id   @default(uuid())
+  id    String      @id   @default(uuid())
   userId    String
   market    String
-  price     Int
+  price     Int?    
   quantity  Int
   type      OrderType
   side      OrderSide
