@@ -34,19 +34,19 @@ function matchEngine({type, side, qty, market, price, userId}: {type: OrderType,
     ORDERBOOKS[market]!.bids.sort((a, b) => b.price - a.price)
 
     let filledQty = 0
+    const user = BALANCES.find((u) => u.userId === userId);
+    if (!user) {
+      return { error: "User not found" };
+    }
     if (type === "MARKET") {
       // how will we check the balance
-      const user = BALANCES.find((u) => u.userId === userId);
-      if (!user) {
-        return { error: "User not found" };
-      }
       const asset = ORDERBOOKS[market]!;
-      if(!asset.asks[0]) {
-        return {error: "No asks price at this time"};
-      }
       
-
       if(side === "BUY"){
+
+        if(!asset.asks[0]) {
+          return {error: "No asks price at this time"};
+        }
         const marketPrice = asset.lastTradedPrice
           ? asset.lastTradedPrice
           : asset.asks[0].price;
@@ -89,8 +89,8 @@ function matchEngine({type, side, qty, market, price, userId}: {type: OrderType,
             orderCount = 0
           }
 
-          let availableUser = asset.asks[count]!.orders[orderCount]!
-          let sellerId = asset.asks[count]?.orders[orderCount]?.userId
+          let availableAsk = asset.asks[count]!.orders[orderCount]!
+          let sellerId = availableAsk.userId
           const seller = BALANCES.find(u => u.userId === sellerId)
 
           if(!seller) {
@@ -101,29 +101,30 @@ function matchEngine({type, side, qty, market, price, userId}: {type: OrderType,
             
           }
 
-          const matchedOrders = Math.min(availableUser.qty, delta)
+          const matchedOrders = Math.min(availableAsk.qty, delta)
           const levelPrice = asset.asks[count]?.price!;
           
           const deductableAmt = levelPrice * matchedOrders
-          if(availableUser.qty <= delta) {
+          if(availableAsk.qty <= delta) {
             user.lockedBalance -= deductableAmt
-            user[market] += availableUser.qty
-            filledQty += availableUser.qty
+            user[market] += availableAsk.qty
+            filledQty += availableAsk.qty
             seller.usdBalance += deductableAmt
+            seller.lockedAsset[market] -= availableAsk.qty
             priceAggregate.push({levelPrice, matchedOrders})
-            asset.asks[count]!.totalQty -= availableUser.qty
-            availableUser.qty = 0
+            asset.asks[count]!.totalQty -= availableAsk.qty
+            availableAsk.qty = 0
 
             asset.asks[count]?.orders.splice(orderCount, 1)
-          } else if(availableUser.qty > delta) {
+          } else if(availableAsk.qty > delta) {
             user.lockedBalance -= deductableAmt
 
             user[market] += delta
             filledQty += delta
 
             seller.usdBalance += deductableAmt
-            availableUser.qty -= delta
-
+            availableAsk.qty -= delta
+            seller.lockedAsset[market] -= delta
             priceAggregate.push({ levelPrice, matchedOrders });
 
             asset.asks[count]!.totalQty -= delta
@@ -137,6 +138,86 @@ function matchEngine({type, side, qty, market, price, userId}: {type: OrderType,
         user.lockedBalance = 0
 
         return {filledQty, priceAggregate }              
+      }else {
+        if(!asset.bids[0]) {
+          return {error: "No bids at this time"}
+        }
+
+        if(user[market] < qty ) {
+          return {error: "insufficient Balance"}
+        }
+
+        user[market] -= qty
+        user.lockedAsset[market] += qty
+        
+        let count = 0;
+        let orderCount = 0;
+        let delta;
+
+        const priceAggregate = [];
+
+        while (qty !== filledQty) {
+          delta = qty - filledQty;
+
+          
+          if (asset.bids[count]!.totalQty === 0) {
+            count++;
+            if (!asset.bids[count]) {
+              
+              user[market] += user.lockedAsset[market];
+              user.lockedAsset[market] = 0;
+              return { filledQty, priceAggregate };
+              
+            }
+            orderCount = 0;
+          }
+
+          let availableBid = asset.bids[count]!.orders[orderCount]!
+          let buyerId = availableBid.userId;
+          const buyer = BALANCES.find((u) => u.userId === buyerId);
+
+
+          if (!buyer) {
+            user[market] += user.lockedAsset[market];
+            user.lockedAsset[market] = 0;
+            return { filledQty,priceAggregate, error: "Buyer not found" };
+          }
+
+          const matchedOrders = Math.min(availableBid.qty, delta)
+          const levelPrice = asset.bids[count]!.price
+
+          const tradeAmount = levelPrice * matchedOrders
+         if(availableBid.qty <= delta) {
+          buyer.lockedBalance -= tradeAmount
+          buyer[market] += availableBid.qty
+          filledQty += availableBid.qty
+          user.lockedAsset[market] -= availableBid.qty
+          user.usdBalance += tradeAmount
+          priceAggregate.push({ levelPrice, matchedOrders });
+          asset.bids[count]!.totalQty -= availableBid.qty;
+          availableBid.qty = 0;
+
+          asset.bids[count]!.orders.splice(orderCount, 1);
+         }else if(availableBid.qty > delta) {
+          buyer.lockedBalance -= tradeAmount;
+
+          buyer[market] += delta;
+          filledQty += delta;
+
+          user.usdBalance += tradeAmount;
+          availableBid.qty -= delta;
+          user.lockedAsset[market] -= delta;
+          priceAggregate.push({ levelPrice, matchedOrders });
+
+          asset.bids[count]!.totalQty -= delta;
+          orderCount++;
+         }
+        }
+
+        user[market] += user.lockedAsset[market];
+        user.lockedAsset[market] = 0;
+
+        return { filledQty, priceAggregate }; 
       }
     }
     

@@ -26,6 +26,7 @@ interface UserBalance {
   userId: string;
   usdBalance: number ;
   lockedBalance: number;
+  lockedAsset: Record<'SOL'| 'BTC', number>
   BTC: number;
   SOL: number;
 }
