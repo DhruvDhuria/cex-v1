@@ -25,7 +25,7 @@ const OrderSchema = z.object({
 interface UserBalance {
   userId: string;
   usdBalance: number ;
-  lockedBalance: number;
+  lockedBalance: number | 0
   lockedAsset: Record<'SOL'| 'BTC', number>
   BTC: number;
   SOL: number;

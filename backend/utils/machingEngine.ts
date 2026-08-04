@@ -2,7 +2,7 @@ import type { AssetOrderBook, UserBalance} from "../types"
 import { OrderType, OrderSide } from "../generated/prisma/enums";
 import { useReducer } from "react";
 
-const BALANCES: UserBalance[] = [
+export const BALANCES: UserBalance[] = [
   /*
   {
     userId = number
@@ -15,7 +15,7 @@ const BALANCES: UserBalance[] = [
 ];
 
 type OrderBookSchema = Record<string, AssetOrderBook>;
-const ORDERBOOKS: OrderBookSchema = {
+export const ORDERBOOKS: OrderBookSchema = {
   SOL: {
     asks: [],
     bids: [],
@@ -28,7 +28,7 @@ const ORDERBOOKS: OrderBookSchema = {
 
 
 // things i will need in the matching engine? order side
-function matchEngine({type, side, qty, market, price, userId}: {type: OrderType, side: OrderSide, qty: number, market: "SOL" | "BTC", price?: number, userId: string}) {
+export function matchEngine({type, side, qty, market, price, userId}: {type: OrderType, side: OrderSide, qty: number, market: "SOL" | "BTC", price?: number, userId: string}) {
 
     ORDERBOOKS[market]!.asks.sort((a, b) => a.price - b.price)
     ORDERBOOKS[market]!.bids.sort((a, b) => b.price - a.price)
