@@ -1,5 +1,7 @@
 import z from "zod"
 import { OrderSide, OrderType } from "./generated/prisma/enums"
+import type { StringLike } from "bun";
+import type { StringLiteral } from "typescript";
 
 const SignupSigninSchema = z.object({
     username: z.string("username should be string").min(3),
@@ -35,7 +37,7 @@ interface OrderbookOrders {
   userId: string;
   qty: number;
   filledQTy: number;
-  orderId: number;
+  orderId: string;
   createdAt: Date;
 }
 interface OrderBookOrdersSchema {

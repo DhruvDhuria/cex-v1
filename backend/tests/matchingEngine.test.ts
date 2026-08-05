@@ -40,7 +40,7 @@ test("check if market bid order is working correctly", () => {
                 userId: "user_3",
                 qty: 50,
                 filledQTy: 0,
-                orderId: 3001,
+                orderId: "slkerjeoi",
                 createdAt: new Date("2026-08-04T09:04:00Z"),
             },
             ],
@@ -53,7 +53,7 @@ test("check if market bid order is working correctly", () => {
                 userId: "user_2",
                 qty: 25,
                 filledQTy: 10,
-                orderId: 3002,
+                orderId: "lskdfjeoiasl",
                 createdAt: new Date("2026-08-04T09:04:30Z"),
             },
             ]
