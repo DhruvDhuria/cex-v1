@@ -1,6 +1,6 @@
 import type { AssetOrderBook, UserBalance } from "../types";
 import { OrderType, OrderSide } from "../generated/prisma/enums";
-import { useReducer } from "react";
+
 
 export const BALANCES: UserBalance[] = [
   /*
@@ -107,6 +107,11 @@ export function matchEngine({
           return { filledQty, priceAggregate, error: "Seller not found" };
         }
 
+        if(seller.userId === user.userId) {
+          orderCount++;
+          continue;
+        }
+
         const matchedOrders = Math.min(availableAsk.qty, delta);
         const levelPrice = asset.asks[count]?.price!;
 
@@ -183,6 +188,10 @@ export function matchEngine({
           return { filledQty, priceAggregate, error: "Buyer not found" };
         }
 
+        if(buyer.userId === user.userId) {
+          orderCount++;
+          continue;
+        }
         const matchedOrders = Math.min(availableBid.qty, delta);
         const levelPrice = asset.bids[count]!.price;
 
@@ -223,7 +232,7 @@ export function matchEngine({
     if (!price) {
       return { error: "Price is required for limit orders" };
     }
-    const priceAggregate: { levelPrice: number; matchedOrders: number }[] = [];
+    const priceAggregate: { levelPrice: number; matchedOrders: number, orderId: string, matchedUser: string }[] = [];
     if (side === "BUY") {
       const totalCost = price * qty;
       if (user.usdBalance < totalCost) {
@@ -234,79 +243,100 @@ export function matchEngine({
       user.lockedBalance += totalCost;
 
       asset.asks.sort((a, b) => a.price - b.price);
-      asset.asks.forEach((ask) => {
-        if (ask.price <= price) {
+      for(let askIndex = 0; askIndex < asset.asks.length && filledQty < qty; askIndex++) {
+        const ask = asset.asks[askIndex]!;
+        if(price < ask.price)  break;
+       
+        if (filledQty === qty) {
+          return { filledQty, priceAggregate };
+        }
+
+        for (let i = 0; i < ask.orders.length && filledQty < qty; i++) {
+          const askPrice = ask.price;
+          const availableAsk = ask.orders[i]!;
+          if(availableAsk.qty === 0) {
+            ask.orders.splice(i, 1);
+            i--;
+            continue;
+          }
+          const sellerId = availableAsk.userId;
+          const seller = BALANCES.find((u) => u.userId === sellerId);
+          const delta = qty - filledQty;
+          if (!seller) {
+            user.usdBalance += user.lockedBalance;
+            user.lockedBalance = 0;
+            return { filledQty, priceAggregate, error: "Seller not found" };
+          }
+          if(seller.userId === user.userId) {
+            continue;
+          }
           if (filledQty === qty) {
-            return { filledQty, priceAggregate: [] };
+
+            return { filledQty, priceAggregate };
           }
 
-          for (let i = 0; i < ask.orders.length; i++) {
-            const askPrice = ask.price;
-            const availableAsk = ask.orders[i]!;
-            const sellerId = availableAsk.userId;
-            const seller = BALANCES.find((u) => u.userId === sellerId);
-            const delta = qty - filledQty;
-            if (!seller) {
-              user.usdBalance += user.lockedBalance;
-              user.lockedBalance = 0;
-              return { filledQty, error: "Seller not found" };
-            }
-            if (filledQty === qty) {
-              break;
-            }
+          if (availableAsk.qty <= delta) {
+            const deductableAmt = askPrice * availableAsk.qty;
+            user.lockedBalance -= deductableAmt;
+            user[market] += availableAsk.qty;
+            filledQty += availableAsk.qty;
+            seller.usdBalance += deductableAmt;
+            seller.lockedAsset[market] -= availableAsk.qty;
+            user.usdBalance += (price - askPrice) * availableAsk.qty;
+            user.lockedBalance -= (price - askPrice) * availableAsk.qty;
+            priceAggregate.push({
+              levelPrice: askPrice,
+              matchedOrders: availableAsk.qty,
+              orderId: availableAsk.orderId,
+              matchedUser: seller.userId,
+            });
+            ask.totalQty -= availableAsk.qty;
+            availableAsk.qty = 0;
 
-            if (availableAsk.qty <= delta) {
-              const deductableAmt = askPrice * availableAsk.qty;
-              user.lockedBalance -= deductableAmt;
-              user[market] += availableAsk.qty;
-              filledQty += availableAsk.qty;
-              seller.usdBalance += deductableAmt;
-              seller.lockedAsset[market] -= availableAsk.qty;
-              priceAggregate.push({
-                levelPrice: askPrice,
-                matchedOrders: availableAsk.qty,
-              });
-              ask.totalQty -= availableAsk.qty;
-              availableAsk.qty = 0;
-
-              ask.orders.splice(i, 1);
-            } else if (availableAsk.qty > delta) {
-              const deductableAmt = askPrice * delta;
-              user.lockedBalance -= deductableAmt;
-              user[market] += delta;
-              filledQty += delta;
-              seller.usdBalance += deductableAmt;
-              availableAsk.qty -= delta;
-              seller.lockedAsset[market] -= delta;
-              ask.totalQty -= delta;
-              priceAggregate.push({
-                levelPrice: askPrice,
-                matchedOrders: delta,
-              });
-              i++;
-            }
+            ask.orders.splice(i, 1);
+            i--;
+          } else if (availableAsk.qty > delta) {
+            const deductableAmt = askPrice * delta;
+            user.lockedBalance -= deductableAmt;
+            user[market] += delta;
+            filledQty += delta;
+            seller.usdBalance += deductableAmt;
+            availableAsk.qty -= delta;
+            seller.lockedAsset[market] -= delta;
+            user.usdBalance += (price - askPrice) * delta;
+            user.lockedBalance -= (price - askPrice) * delta;
+            ask.totalQty -= delta;
+            priceAggregate.push({
+              levelPrice: askPrice,
+              matchedOrders: delta,
+              orderId: availableAsk.orderId,
+              matchedUser: seller.userId,
+            });
           }
         }
-
-        if (filledQty !== qty) {
-          const remainingQty = qty - filledQty;
-          asset.bids.push({
-            price: price,
-            totalQty: remainingQty,
-            orders: [
-              {
-                userId: user.userId,
-                qty: remainingQty,
-                filledQTy: 0,
-                orderId: crypto.randomUUID(),
-                createdAt: new Date(),
-              },
-            ],
-          });
-          return { message: "Order added to order book" };
-        }
-        return { filledQty, priceAggregate };
-      });
+               
+      };
+      if (filledQty !== qty) {
+        const remainingQty = qty - filledQty;
+        asset.bids.push({
+          price: price,
+          totalQty: remainingQty,
+          orders: [
+            {
+              userId: user.userId,
+              qty: remainingQty,
+              filledQTy: 0,
+              orderId: crypto.randomUUID(),
+              createdAt: new Date(),
+            },
+          ],
+        });
+        return {filledQty, priceAggregate, message: "Order added to order book" };
+      
+      }
+      user.usdBalance += user.lockedBalance;
+      user.lockedBalance = 0;
+      return { filledQty, priceAggregate };
     } else {
       if (user[market] < qty) {
         return { error: "Insufficient balance" };
@@ -323,54 +353,70 @@ export function matchEngine({
         bidIndex++
       ) {
         const bid = asset.bids[bidIndex]!;
-        if (bid.price >= price) {
-          for (let i = 0; i < bid.orders.length && filledQty < qty; ) {
-            const bidPrice = bid.price;
-            const availableBid = bid.orders[i]!;
-            const buyerId = availableBid.userId;
-            const buyer = BALANCES.find((u) => u.userId === buyerId);
-            const delta = qty - filledQty;
+        if(bid.totalQty === 0) {
+          asset.bids.splice(bidIndex, 1);
+          bidIndex--;
+          continue;
+        }
 
-            if (!buyer) {
-              user[market] += user.lockedAsset[market];
-              user.lockedAsset[market] = 0;
-              return { filledQty, error: "Buyer not found" };
-            }
+        if(price > bid.price) {
+          break;
+        }
+        
+        for (let i = 0; i < bid.orders.length && filledQty < qty; i++) {
+          const bidPrice = bid.price;
+          const availableBid = bid.orders[i]!;
+          const buyerId = availableBid.userId;
+          const buyer = BALANCES.find((u) => u.userId === buyerId);
+          const delta = qty - filledQty;
 
-            const matchedOrders = Math.min(availableBid.qty, delta);
-            const tradeAmount = bidPrice * matchedOrders;
+          if (!buyer) {
+            user[market] += user.lockedAsset[market];
+            user.lockedAsset[market] = 0;
+            return { filledQty, error: "Buyer not found" };
+          }
+          if(buyer.userId === user.userId) {
+            continue;
+          }
 
-            if (availableBid.qty <= delta) {
-              buyer.lockedBalance -= tradeAmount;
-              buyer[market] += availableBid.qty;
-              filledQty += availableBid.qty;
-              user.usdBalance += tradeAmount;
-              user.lockedAsset[market] -= availableBid.qty;
-              priceAggregate.push({
-                levelPrice: bidPrice,
-                matchedOrders: availableBid.qty,
-              });
-              bid.totalQty -= availableBid.qty;
-              availableBid.qty = 0;
+          const matchedOrders = Math.min(availableBid.qty, delta);
+          const tradeAmount = bidPrice * matchedOrders;
 
-              bid.orders.splice(i, 1);
-            } else {
-              buyer.lockedBalance -= tradeAmount;
-              buyer[market] += delta;
-              filledQty += delta;
-              user.usdBalance += tradeAmount;
-              availableBid.qty -= delta;
-              user.lockedAsset[market] -= delta;
-              bid.totalQty -= delta;
-              priceAggregate.push({
-                levelPrice: bidPrice,
-                matchedOrders: delta,
-              });
+          if (availableBid.qty <= delta) {
+            buyer.lockedBalance -= tradeAmount;
+            buyer[market] += availableBid.qty;
+            filledQty += availableBid.qty;
+            user.usdBalance += tradeAmount;
+            user.lockedAsset[market] -= availableBid.qty;
+            priceAggregate.push({
+              levelPrice: bidPrice,
+              matchedOrders: availableBid.qty,
+              orderId: availableBid.orderId,
+              matchedUser: buyer.userId,
+            });
+            bid.totalQty -= availableBid.qty;
+            availableBid.qty = 0;
 
-              i++;
-            }
+            bid.orders.splice(i, 1);
+            i--;
+          } else {
+            buyer.lockedBalance -= tradeAmount;
+            buyer[market] += delta;
+            filledQty += delta;
+            user.usdBalance += tradeAmount;
+            availableBid.qty -= delta;
+            user.lockedAsset[market] -= delta;
+            bid.totalQty -= delta;
+            priceAggregate.push({
+              levelPrice: bidPrice,
+              matchedOrders: delta,
+              matchedUser: buyer.userId,
+              orderId: availableBid.orderId,
+            });
+
           }
         }
+        
       }
 
       if (filledQty !== qty) {
@@ -388,7 +434,8 @@ export function matchEngine({
             },
           ],
         });
-        return { message: "Order added to order book" };
+        return {filledQty, priceAggregate, message: "Order added to order book" };
+        
       }
 
       user[market] += user.lockedAsset[market];
