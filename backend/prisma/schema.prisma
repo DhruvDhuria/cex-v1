@@ -59,7 +59,7 @@ model Order {
   quantity  Int
   type      OrderType
   side      OrderSide
-  filledQuantitiy   Int
+  filledQuantity   Int
   status            OrderStatus
   
   user    User    @relation(fields: [userId], references: [id])

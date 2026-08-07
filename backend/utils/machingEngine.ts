@@ -26,6 +26,13 @@ export const ORDERBOOKS: OrderBookSchema = {
   },
 };
 
+
+type Returntype = {
+  filledQty?: number,
+  priceAggregate?: { levelPrice: number; matchedOrders: number, orderId?: string, matchedUser: string }[],
+  error?: string,
+  message?: string
+}
 // things i will need in the matching engine? order side
 export function matchEngine({
   type,
@@ -41,7 +48,7 @@ export function matchEngine({
   market: "SOL" | "BTC";
   price?: number;
   userId: string;
-}) {
+}): Returntype {
   ORDERBOOKS[market]!.asks.sort((a, b) => a.price - b.price);
   ORDERBOOKS[market]!.bids.sort((a, b) => b.price - a.price);
 
@@ -122,7 +129,7 @@ export function matchEngine({
           filledQty += availableAsk.qty;
           seller.usdBalance += deductableAmt;
           seller.lockedAsset[market] -= availableAsk.qty;
-          priceAggregate.push({ levelPrice, matchedOrders });
+          priceAggregate.push({ levelPrice, matchedOrders, orderId: availableAsk.orderId, matchedUser: seller.userId });
           asset.asks[count]!.totalQty -= availableAsk.qty;
           availableAsk.qty = 0;
 
@@ -136,7 +143,7 @@ export function matchEngine({
           seller.usdBalance += deductableAmt;
           availableAsk.qty -= delta;
           seller.lockedAsset[market] -= delta;
-          priceAggregate.push({ levelPrice, matchedOrders });
+          priceAggregate.push({ levelPrice, matchedOrders, orderId: availableAsk.orderId, matchedUser: seller.userId });
 
           asset.asks[count]!.totalQty -= delta;
           orderCount++;
@@ -202,7 +209,7 @@ export function matchEngine({
           filledQty += availableBid.qty;
           user.lockedAsset[market] -= availableBid.qty;
           user.usdBalance += tradeAmount;
-          priceAggregate.push({ levelPrice, matchedOrders });
+          priceAggregate.push({ levelPrice, matchedOrders, orderId: availableBid.orderId, matchedUser: buyer.userId });
           asset.bids[count]!.totalQty -= availableBid.qty;
           availableBid.qty = 0;
 
@@ -216,7 +223,7 @@ export function matchEngine({
           user.usdBalance += tradeAmount;
           availableBid.qty -= delta;
           user.lockedAsset[market] -= delta;
-          priceAggregate.push({ levelPrice, matchedOrders });
+          priceAggregate.push({ levelPrice, matchedOrders, orderId: availableBid.orderId, matchedUser: buyer.userId });
 
           asset.bids[count]!.totalQty -= delta;
           orderCount++;
@@ -444,4 +451,52 @@ export function matchEngine({
       return { filledQty, priceAggregate };
     }
   }
+
+  return { error: "Invalid order type" };
+}
+
+
+export function deleteOrderFromOrderBook(order: { orderId: string; market: string; side: OrderSide }) {
+  const { orderId, market, side } = order;
+  const asset = ORDERBOOKS[market]!;
+
+  const orderSide = side === "BUY" ? asset.bids : asset.asks;
+  
+  for (let i = 0; i < orderSide.length; i++) {
+    const level = orderSide[i]!;
+    const orderIndex = level.orders.findIndex((o) => o.orderId === orderId);
+    if (orderIndex !== -1) {
+      level.orders.splice(orderIndex, 1);
+      if (level.orders.length === 0) {
+        orderSide.splice(i, 1);
+      }
+      break;
+    }
+  }
+}
+
+
+export function getDepth(market: string) {
+  const asset = ORDERBOOKS[market]!;
+  const asks = asset.asks.map((ask) => ({
+    price: ask.price,
+    totalQty: ask.totalQty,
+  }));
+  const bids = asset.bids.map((bid) => ({
+    price: bid.price,
+    totalQty: bid.totalQty,
+  }));
+  return { asks, bids };
+}
+
+
+export function getUserBalance(userId: string) {
+  const user = BALANCES.find((u) => u.userId === userId);
+
+  if(!user) {
+    return { error: "User not found" };
+  }
+
+  return{ user}
+
 }
